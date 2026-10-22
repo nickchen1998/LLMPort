@@ -17,8 +17,6 @@ class ProfileUpdate(BaseModel):
 
 class KeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    model_ids: list[int] | None = None        # None：可用會員的全部模型
-    rpm_limit: int | None = Field(None, ge=1)  # None：等於會員上限
     expires_on: date | None = None
 
 
@@ -27,9 +25,7 @@ class MemberCreate(BaseModel):
     email: str
     note: str | None = None
     monthly_token_quota: int = Field(0, ge=0)
-    rpm_limit: int = Field(60, ge=1, le=10000)
     max_keys: int = Field(10, ge=1, le=50)
-    model_ids: list[int] = []
 
 
 class MemberUpdate(BaseModel):
@@ -38,9 +34,7 @@ class MemberUpdate(BaseModel):
     note: str | None = None
     is_active: bool | None = None
     monthly_token_quota: int | None = Field(None, ge=0)
-    rpm_limit: int | None = Field(None, ge=1, le=10000)
     max_keys: int | None = Field(None, ge=1, le=50)
-    model_ids: list[int] | None = None
 
 
 class AdminCreate(BaseModel):

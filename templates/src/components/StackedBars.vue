@@ -1,11 +1,22 @@
 <script setup>
 // 每日 token 堆疊長條圖：2px 間隔、頂端圓角、滑過顯示明細
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fmtTok } from '../composables/format'
 
-const props = defineProps({ labels: Array, series: Array, height: { type: Number, default: 250 } })
-const W = 760, L = 50, R = 8, T = 14, B = 26
-const H = computed(() => props.height)
+const props = defineProps({ labels: Array, series: Array, height: { type: Number, default: 250 }, fill: Boolean })
+const L = 50, R = 8, T = 14, B = 26
+// fill 時跟著容器大小重畫（用實際像素當 viewBox，字不會被拉伸）
+const box = ref(null)
+const size = ref({ w: 760, h: props.height })
+const W = computed(() => size.value.w)
+const H = computed(() => size.value.h)
+let ro = null
+onMounted(() => {
+  if (!props.fill || !box.value) return
+  ro = new ResizeObserver(([e]) => { const { width, height } = e.contentRect; if (width > 0 && height > 0) size.value = { w: Math.round(width), h: Math.max(160, Math.round(height)) } })
+  ro.observe(box.value)
+})
+onBeforeUnmount(() => ro?.disconnect())
 const hover = ref(-1)
 const n = computed(() => props.labels.length || 1)
 const totals = computed(() => props.labels.map((_, i) => props.series.reduce((a, s) => a + (s.values[i] || 0), 0)))
@@ -13,7 +24,7 @@ function niceStep(x) { const p = Math.pow(10, Math.floor(Math.log10(x))); const 
 const step4 = computed(() => niceStep(Math.max(4, ...totals.value) / 4))
 const max = computed(() => step4.value * 4)
 const ticks = computed(() => [0, 1, 2, 3, 4].map((k) => k * step4.value))
-const step = computed(() => (W - L - R) / n.value)
+const step = computed(() => (W.value - L - R) / n.value)
 const bw = computed(() => Math.min(24, step.value * 0.62))
 const cx = (i) => L + step.value * i + step.value / 2
 const y = (v) => T + (H.value - T - B) * (1 - v / max.value)
@@ -38,12 +49,12 @@ const bars = computed(() => props.labels.map((_, i) => {
 const tipStyle = computed(() => {
   const i = hover.value
   if (i < 0) return {}
-  return { left: Math.max(14, Math.min(86, (cx(i) / W) * 100)) + '%', top: Math.max(18, (y(totals.value[i]) / H.value) * 100) + '%' }
+  return { left: Math.max(14, Math.min(86, (cx(i) / W.value) * 100)) + '%', top: Math.max(18, (y(totals.value[i]) / H.value) * 100) + '%' }
 })
 </script>
 
 <template>
-  <div class="chart">
+  <div ref="box" class="chart" :class="{ 'chart-fill': fill }">
     <svg :viewBox="`0 0 ${W} ${H}`" role="img" :aria-label="`每日 Token 堆疊長條圖，共 ${labels.length} 天`" @mouseleave="hover = -1">
       <g class="ax">
         <g v-for="t in ticks" :key="t"><line class="gridl" :x1="L" :x2="W - R" :y1="y(t)" :y2="y(t)" /><text :x="L - 8" :y="y(t) + 4" text-anchor="end">{{ fmtTok(t) }}</text></g>

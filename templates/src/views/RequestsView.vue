@@ -36,15 +36,15 @@ const visible = (r) => auth.isAdmin || ((!modelId.value || r.model_id === modelI
 </script>
 
 <template>
-  <div class="page">
+  <div class="page fill">
     <div class="filters">
       <div class="seg" role="group" aria-label="狀態"><button :class="{ on: !status }" @click="status = ''">全部</button><button :class="{ on: status === 'ok' }" @click="status = 'ok'">成功</button><button :class="{ on: status === 'error' }" @click="status = 'error'">錯誤</button></div>
       <select id="req-model" v-model.number="modelId" class="input input-sm" aria-label="模型"><option :value="0">全部模型</option><option v-for="x in models" :key="x.id" :value="x.id">{{ x.api_name }}</option></select>
       <select id="req-ep" v-model="endpoint" class="input input-sm" aria-label="端點"><option value="">全部端點</option><option v-for="e in ENDPOINTS" :key="e" :value="e">{{ e }}</option></select>
       <label class="switch t13 ml-auto" for="req-live"><input id="req-live" v-model="live" type="checkbox" />每 5 秒更新</label>
     </div>
-    <section class="card" style="padding: 6px 8px">
-      <div class="scroll-x"><table class="tbl">
+    <section class="card col-card grow" style="padding: 6px 8px">
+      <div class="scroll-x scroll"><table class="tbl">
         <thead><tr><th>時間</th><th>{{ auth.isAdmin ? '帳號 · 金鑰' : '金鑰' }}</th><th>模型</th><th>端點</th><th>狀態</th><th class="r">輸入</th><th class="r">輸出</th><th class="r">首字</th><th class="r">總時間</th></tr></thead>
         <tbody>
           <template v-for="r in rows" :key="r.id">

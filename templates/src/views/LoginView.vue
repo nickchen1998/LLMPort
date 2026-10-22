@@ -30,7 +30,7 @@ async function submit() {
   <div class="login-wrap">
     <form class="login-card" @submit.prevent="submit">
       <div class="login-brand">
-        <svg class="logo" viewBox="0 0 32 32" width="40" height="40" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8" style="fill: var(--sun)" /><path d="M9 9v14h6M18 23V9h4a4 4 0 0 1 0 8h-4" fill="none" style="stroke: var(--on-sun)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+        <img class="logo" src="/logo.png" width="40" height="40" alt="" />
         <div><div class="name">LLMPort</div><div class="t13 muted">本地模型與 API Key 管理</div></div>
       </div>
       <div class="field"><label for="login-email">Email</label><input id="login-email" v-model="email" class="input" type="email" autocomplete="username" required /></div>

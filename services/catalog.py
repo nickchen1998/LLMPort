@@ -39,3 +39,8 @@ def public_model_out(model: LLMModel, status: str) -> dict:
     return {"id": model.id, "api_name": model.api_name, "display_name": model.display_name,
             "capabilities": list(model.capabilities or []), "embedding_dims": model.embedding_dims,
             "context_length": model.context_length, "available": status == "loaded"}
+
+
+def enabled_models(db) -> list[LLMModel]:
+    """每個帳號都能用全部啟用中的模型（沒有載入的呼叫時回 503）。"""
+    return db.query(LLMModel).filter(LLMModel.is_enabled.is_(True)).order_by(LLMModel.id).all()

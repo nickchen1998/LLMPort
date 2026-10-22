@@ -9,8 +9,10 @@ import { useAuth } from '../../stores/auth'
 import { toast } from '../../stores/toast'
 import { ROLE_LABEL, fmtTime } from '../../composables/format'
 
+const props = defineProps({ section: { type: String, default: '' } })
 const auth = useAuth()
-const tab = ref('list')
+const tab = ref(props.section || 'list')
+watch(() => props.section, (v) => { if (v) tab.value = v })
 const admins = ref([])
 const audit = ref([])
 const secret = ref(null)
@@ -20,17 +22,16 @@ const PERMS = [
   ['載入、卸載模型', true, true, false],
   ['新增、刪除、下載模型，修改模型設定', true, false, false],
   ['所有會員的用量統計與請求紀錄', true, true, false],
-  ['會員帳號：新增、調整上限與可用模型、重設密碼、停用', true, true, false],
+  ['帳號管理：會員的新增、上限、重設密碼、停用', true, true, false],
   ['撤銷任何會員的 API Key（看不到完整金鑰）', true, true, false],
-  ['後台帳號（含指定 Superuser）、操作紀錄', true, false, false],
+  ['帳號管理：管理者帳號（含指定 Superuser）、操作紀錄', true, false, false],
   ['系統設定', true, false, false],
-  ['自己的 API Key：建立、撤銷', false, false, true],
-  ['自己的用量、請求紀錄、串接說明', false, false, true],
+  ['自己的 API Key、用量、請求紀錄、串接說明（服務中心）', true, true, true],
   ['測試台', true, true, true],
 ]
 
 async function load() { admins.value = await api('/api/admins') }
-onMounted(load)
+onMounted(async () => { if (auth.isSU) await load(); if (tab.value === 'audit') audit.value = await api('/api/audit') })
 watch(tab, async (t) => { if (t === 'audit') audit.value = await api('/api/audit') })
 const suCount = computed(() => admins.value.filter((a) => a.role === 'superuser' && a.is_active).length)
 
@@ -53,15 +54,15 @@ async function create() {
 
 <template>
   <div class="page">
-    <section class="card">
-      <div class="tabs">
+    <section :class="section ? '' : 'card'">
+      <div v-if="!section" class="tabs">
         <button class="tab" :class="{ on: tab === 'list' }" @click="tab = 'list'">後台帳號 <span class="count">{{ admins.length }}</span></button>
         <button class="tab" :class="{ on: tab === 'perm' }" @click="tab = 'perm'">權限對照</button>
         <button class="tab" :class="{ on: tab === 'audit' }" @click="tab = 'audit'">操作紀錄</button>
       </div>
 
       <div v-if="tab === 'list'" class="detail">
-        <p class="t13 ink2" style="margin: 0">這裡是管理者帳號（Superuser 與管理員），會員帳號在「會員」頁建立。第一個 Superuser 用 <code>poetry run python create_superuser.py</code> 建立，至少要保留一位 Superuser。</p>
+        <p class="t13 ink2" style="margin: 0">這裡是管理者帳號（Superuser 與管理員）。第一個 Superuser 用 <code>poetry run python create_superuser.py</code> 建立，至少要保留一位 Superuser。</p>
         <SecretBox v-if="secret" :title="secret.title" :hint="secret.hint" :value="secret.value" @close="secret = null" />
         <div class="scroll-x">
           <table class="tbl">

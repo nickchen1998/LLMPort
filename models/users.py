@@ -1,23 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Table, Text
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from . import Base
-
-# 會員可用的模型
-user_model = Table(
-    "user_model", Base.metadata,
-    Column("user_id", Integer, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
-    Column("model_id", Integer, ForeignKey("llm_model.id", ondelete="CASCADE"), primary_key=True),
-)
-
-# 金鑰再縮小的可用模型；沒有資料列表示沿用會員的設定
-api_key_model = Table(
-    "api_key_model", Base.metadata,
-    Column("api_key_id", Integer, ForeignKey("api_key.id", ondelete="CASCADE"), primary_key=True),
-    Column("model_id", Integer, ForeignKey("llm_model.id", ondelete="CASCADE"), primary_key=True),
-)
 
 
 class Role:
@@ -41,7 +27,6 @@ class User(Base):
     must_change_password = Column(Boolean, default=False, nullable=False)
 
     monthly_token_quota = Column(BigInteger, default=0, nullable=False)   # 0 表示不限，所有金鑰合計
-    rpm_limit = Column(Integer, default=60, nullable=False)               # 每把金鑰的每分鐘請求數上限
     max_keys = Column(Integer, default=10, nullable=False)
 
     last_login_at = Column(DateTime, nullable=True)
@@ -52,7 +37,6 @@ class User(Base):
 
     api_keys = relationship("ApiKey", back_populates="user", foreign_keys="ApiKey.user_id",
                             cascade="all, delete-orphan", order_by="ApiKey.id.desc()")
-    allowed_models = relationship("LLMModel", secondary=user_model, order_by="LLMModel.id")
 
     @property
     def role(self) -> str:
@@ -75,7 +59,6 @@ class ApiKey(Base):
     key_prefix = Column(String(20), nullable=False)
     key_last4 = Column(String(8), nullable=False)
     hashed_key = Column(String(64), nullable=False, unique=True, index=True)
-    rpm_limit = Column(Integer, nullable=True)               # 空值等於會員上限，不能超過
     expires_at = Column(DateTime, nullable=True)
     last_used_at = Column(DateTime, nullable=True)
     revoked_at = Column(DateTime, nullable=True)
@@ -83,7 +66,6 @@ class ApiKey(Base):
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
     user = relationship("User", back_populates="api_keys", foreign_keys=[user_id])
-    models = relationship("LLMModel", secondary=api_key_model, order_by="LLMModel.id")
 
     @property
     def masked(self) -> str:
@@ -96,12 +78,3 @@ class ApiKey(Base):
     def is_expired(self, now: datetime | None = None) -> bool:
         return self.expires_at is not None and self.expires_at <= (now or datetime.now())
 
-    def effective_rpm(self) -> int:
-        cap = self.user.rpm_limit if self.user else 60
-        return min(self.rpm_limit, cap) if self.rpm_limit else cap
-
-    def effective_model_ids(self) -> set[int]:
-        member_ids = {m.id for m in self.user.allowed_models} if self.user else set()
-        if not self.models:
-            return member_ids
-        return {m.id for m in self.models} & member_ids

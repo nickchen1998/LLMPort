@@ -48,8 +48,8 @@ async def test_role_guards(client, db, member, admin, superuser):
     assert (await client.get("/api/settings", headers=auth(admin))).status_code == 403
     assert (await client.get("/api/admins", headers=auth(admin))).status_code == 403
     assert (await client.get("/api/settings", headers=auth(superuser))).status_code == 200
-    # 管理者沒有自己的 API Key
-    assert (await client.post("/api/me/keys", json={"name": "x"}, headers=auth(admin))).status_code == 403
+    # 管理者也有自己的 API Key（服務中心）
+    assert (await client.post("/api/me/keys", json={"name": "x"}, headers=auth(admin))).status_code == 201
     assert (await client.get("/api/me/summary")).status_code == 401
 
 

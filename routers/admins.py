@@ -27,7 +27,7 @@ def list_admins(su: User = Depends(require_superuser), db: Session = Depends(get
 def create_admin(body: AdminCreate, su: User = Depends(require_superuser), db: Session = Depends(get_db)):
     password = generate_password()
     user = User(email=clean_email(db, body.email), name=body.name.strip(), hashed_password=hash_password(password),
-                is_staff=True, is_superuser=body.is_superuser, must_change_password=True, rpm_limit=600)
+                is_staff=True, is_superuser=body.is_superuser, must_change_password=True)
     db.add(user)
     db.flush()
     audit.record(db, su, "建立後台帳號", user.email, commit=False)

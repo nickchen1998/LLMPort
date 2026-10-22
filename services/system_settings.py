@@ -15,7 +15,6 @@ def defaults() -> dict:
     return {
         "metal_limit_gb": default_metal_limit_gb(),
         "headroom_gb": 1.0,
-        "default_rpm": 60,
         "default_quota_m": 5.0,
         "default_max_keys": 10,
         "retention_days": 90,
@@ -28,7 +27,6 @@ def defaults() -> dict:
 EDITABLE = {
     "metal_limit_gb": float,
     "headroom_gb": float,
-    "default_rpm": int,
     "default_quota_m": float,
     "default_max_keys": int,
     "retention_days": int,
@@ -40,7 +38,8 @@ EDITABLE = {
 def get_all(db: Session) -> dict:
     values = defaults()
     for row in db.query(SystemSetting).all():
-        values[row.key] = row.value
+        if row.key in values:
+            values[row.key] = row.value
     return values
 
 
@@ -59,7 +58,6 @@ def validate(changes: dict) -> dict:
     rules = {
         "metal_limit_gb": (4, max(4, total - 3), f"Metal 上限要在 4 到 {max(4, total - 3):.0f} GB 之間（至少留 3 GB 給 macOS）"),
         "headroom_gb": (0, 8, "安全餘裕要在 0 到 8 GB 之間"),
-        "default_rpm": (1, 10000, "每分鐘請求數要在 1 到 10000 之間"),
         "default_quota_m": (0, 100000, "每月 Token 上限不能是負數"),
         "default_max_keys": (1, 50, "金鑰數量上限要在 1 到 50 之間"),
         "retention_days": (7, 3650, "紀錄保留天數要在 7 到 3650 之間"),

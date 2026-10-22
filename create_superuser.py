@@ -72,8 +72,7 @@ def main() -> None:
             db.commit()
             print(f"Superuser {email} 已更新")
             return
-        db.add(User(email=email, name=name, hashed_password=hash_password(password), is_superuser=True, is_staff=True,
-                    rpm_limit=600))
+        db.add(User(email=email, name=name, hashed_password=hash_password(password), is_superuser=True, is_staff=True))
         db.commit()
         print(f"Superuser {email} 建立成功")
 

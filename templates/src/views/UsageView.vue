@@ -1,5 +1,5 @@
 <script setup>
-// 用量統計：管理者看全部會員（依會員），會員只看自己（依金鑰）
+// 用量統計：scope='mine' 看自己的（依金鑰，金鑰管理裡），scope='all' 看全部帳號（依帳號，管理中心）
 import { computed, onMounted, ref, watch } from 'vue'
 import StackedBars from '../components/StackedBars.vue'
 import Pill from '../components/Pill.vue'
@@ -8,7 +8,9 @@ import { useAuth } from '../stores/auth'
 import { toast } from '../stores/toast'
 import { dayLabel, fmtInt, fmtTok, modelColor, pct } from '../composables/format'
 
+const props = defineProps({ scope: { type: String, default: 'mine' } })
 const auth = useAuth()
+const all = computed(() => props.scope === 'all' && auth.isAdmin)
 const days = ref(14)
 const userId = ref(0)
 const modelId = ref(0)
@@ -20,11 +22,11 @@ const models = ref([])
 async function load() {
   const qs = new URLSearchParams({ days: days.value })
   if (modelId.value) qs.set('model_id', modelId.value)
-  if (auth.isAdmin && userId.value) qs.set('user_id', userId.value)
-  data.value = await api(`${auth.isAdmin ? '/api/usage' : '/api/me/usage'}?${qs}`)
+  if (all.value && userId.value) qs.set('user_id', userId.value)
+  data.value = await api(`${all.value ? '/api/usage' : '/api/me/usage'}?${qs}`)
 }
 onMounted(async () => {
-  if (auth.isAdmin) {
+  if (all.value) {
     const [m, ms] = await Promise.all([api('/api/members'), api('/api/models')])
     members.value = m
     models.value = ms.models
@@ -52,12 +54,12 @@ async function exportCsv() {
 </script>
 
 <template>
-  <div class="page">
+  <div class="page fill">
     <div class="filters">
       <div class="seg" role="group" aria-label="期間"><button v-for="p in [7, 14, 30, 90]" :key="p" :class="{ on: days === p }" @click="days = p">近 {{ p }} 天</button></div>
-      <select v-if="auth.isAdmin" id="usage-member" v-model.number="userId" class="input input-sm" aria-label="會員"><option :value="0">全部帳號</option><option v-for="x in members" :key="x.id" :value="x.id">{{ x.name }}</option></select>
+      <select v-if="all" id="usage-member" v-model.number="userId" class="input input-sm" aria-label="會員"><option :value="0">全部帳號</option><option v-for="x in members" :key="x.id" :value="x.id">{{ x.name }}</option></select>
       <select id="usage-model" v-model.number="modelId" class="input input-sm" aria-label="模型"><option :value="0">全部模型</option><option v-for="x in models" :key="x.id" :value="x.id">{{ x.api_name }}</option></select>
-      <button v-if="auth.isAdmin" class="btn btn-s btn-sm ml-auto" @click="exportCsv">匯出 CSV</button>
+      <button v-if="all" class="btn btn-s btn-sm ml-auto" @click="exportCsv">匯出 CSV</button>
     </div>
     <section class="tiles">
       <div class="card tile"><div class="label">Token 合計</div><div class="tile-v num">{{ fmtTok(totals.prompt_tokens + totals.completion_tokens) }}</div><div class="t12 muted">近 {{ days }} 天</div></div>
@@ -65,7 +67,8 @@ async function exportCsv() {
       <div class="card tile"><div class="label">輸出 Token</div><div class="tile-v num">{{ fmtTok(totals.completion_tokens) }}</div><div class="t12 muted">嵌入與決策沒有輸出 token</div></div>
       <div class="card tile"><div class="label">請求數</div><div class="tile-v num">{{ fmtInt(totals.requests) }}</div><div class="t12 muted">其中錯誤 {{ fmtInt(totals.errors) }} 筆</div></div>
     </section>
-    <section class="card">
+    <div class="grid-2 two grow">
+    <section class="card scroll-y">
       <div class="card-h"><h2>每日 Token（依模型）</h2>
         <div class="seg ml-auto" role="group" aria-label="檢視方式"><button :class="{ on: view === 'chart' }" @click="view = 'chart'">圖表</button><button :class="{ on: view === 'table' }" @click="view = 'table'">表格</button></div></div>
       <template v-if="series.length">
@@ -78,7 +81,7 @@ async function exportCsv() {
       </template>
       <div v-else class="empty">這段期間沒有用量。</div>
     </section>
-    <section v-if="auth.isAdmin && data" class="card">
+    <section v-if="all && data" class="card scroll-y">
       <div class="card-h"><h2>依帳號</h2><span class="t13 muted">近 {{ days }} 天</span></div>
       <div class="scroll-x"><table class="tbl">
         <thead><tr><th>帳號</th><th class="r">請求</th><th class="r">輸入</th><th class="r">輸出</th><th class="r">合計</th><th>本月配額</th></tr></thead>
@@ -90,11 +93,12 @@ async function exportCsv() {
       </table></div>
       <div v-if="!data.by_user.length" class="empty">這段期間沒有用量。</div>
     </section>
-    <section v-if="!auth.isAdmin && data" class="card">
+    <section v-if="!all && data" class="card scroll-y">
       <div class="card-h"><h2>依金鑰</h2><span class="t13 muted">近 {{ days }} 天</span></div>
       <div class="scroll-x"><table class="tbl"><thead><tr><th>金鑰</th><th class="r">請求</th><th class="r">輸入</th><th class="r">輸出</th><th class="r">合計</th></tr></thead>
         <tbody><tr v-for="r in data.by_key" :key="r.api_key_id"><td><span class="strong">{{ r.name }}</span> <span class="mono t12 muted">{{ r.masked }}</span> <span v-if="r.revoked" class="cap">已撤銷</span></td><td class="r">{{ fmtInt(r.requests) }}</td><td class="r">{{ fmtTok(r.prompt_tokens) }}</td><td class="r">{{ fmtTok(r.completion_tokens) }}</td><td class="r strong">{{ fmtTok(r.prompt_tokens + r.completion_tokens) }}</td></tr></tbody></table></div>
       <div v-if="!data.by_key.length" class="empty">這段期間沒有用量。</div>
     </section>
+    </div>
   </div>
 </template>

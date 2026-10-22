@@ -19,23 +19,12 @@ async def test_member_creates_key_shown_once(client, db, member):
 
 async def test_key_limits(client, member, models):
     h = auth(member)
-    r = await client.post("/api/me/keys", json={"name": "太快", "rpm_limit": 999}, headers=h)
-    assert r.status_code == 400 and "60" in r.json()["detail"]
     r = await client.post("/api/me/keys", json={"name": "過期", "expires_on": date.today().isoformat()}, headers=h)
-    assert r.status_code == 400
-    r = await client.post("/api/me/keys", json={"name": "沒有模型", "model_ids": []}, headers=h)
     assert r.status_code == 400
     for i in range(3):
         assert (await client.post("/api/me/keys", json={"name": f"k{i}"}, headers=h)).status_code == 201
     r = await client.post("/api/me/keys", json={"name": "第四把"}, headers=h)
     assert r.status_code == 400 and "最多 3 把" in r.json()["detail"]
-
-
-async def test_key_scope_must_be_within_member_models(client, db, member, models):
-    member.allowed_models = [models["qwen3-4b"]]
-    db.commit()
-    r = await client.post("/api/me/keys", json={"name": "x", "model_ids": [models["qwen3-vl-8b"].id]}, headers=auth(member))
-    assert r.status_code == 400 and "開放給你" in r.json()["detail"]
 
 
 async def test_member_revokes_own_key_but_not_others(client, db, member, member_key):
@@ -51,8 +40,7 @@ async def test_member_revokes_own_key_but_not_others(client, db, member, member_
 
 async def test_admin_creates_member_with_initial_password(client, admin, models):
     r = await client.post("/api/members", json={"name": "星野工作室", "email": "Hoshino@Example.com",
-                                                "monthly_token_quota": 7500000, "rpm_limit": 20, "max_keys": 3,
-                                                "model_ids": [models["qwen3-4b"].id]}, headers=auth(admin))
+                                                "monthly_token_quota": 7500000, "max_keys": 3}, headers=auth(admin))
     assert r.status_code == 201
     body = r.json()
     assert body["member"]["email"] == "hoshino@example.com"
@@ -84,3 +72,16 @@ async def test_expired_key_is_rejected(client, db, member, member_key):
     db.commit()
     r = await client.get("/v1/models", headers=bearer(member_key))
     assert r.status_code == 403 and "expired" in r.json()["error"]["message"]
+
+
+async def test_admin_key_can_use_every_enabled_model(client, db, admin, models):
+    from tests.conftest import attach
+
+    attach(models["qwen3-4b"])
+    r = await client.post("/api/me/keys", json={"name": "我的系統"}, headers=auth(admin))
+    assert r.status_code == 201
+    data = (await client.get("/v1/models", headers=bearer(r.json()["key"]))).json()["data"]
+    assert {m["id"] for m in data} == set(models)
+    r = await client.post("/v1/chat/completions", headers=bearer(r.json()["key"]),
+                          json={"model": "qwen3-4b", "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 200

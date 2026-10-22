@@ -1,10 +1,10 @@
-# LLMPort
+<h1 align="center"><img src="docs/assets/logo-wordmark.png" alt="LLMPort" width="420" /></h1>
 
 在 Mac mini 上用 [MLX](https://github.com/ml-explore/mlx) 部署本地模型，對外提供 **OpenAI 相容的 API**，並附一個後台管理模型、會員、API Key 與用量。外網經 Cloudflare Tunnel 連進來，機器不用開任何對外 port。
 
 - **OpenAI 相容**：`/v1/chat/completions`（可串流、可帶圖片）、`/v1/embeddings`、`/v1/decisions`（Jev／OpenAI Decisions 類型）、`/v1/models`。現有的 OpenAI SDK 只要改 `base_url` 和 `api_key`。
 - **模型管理（只給管理者）**：一個模型一個 worker 行程，載入就是啟動行程，卸載就是結束行程。只手動載入，載入前會先檢查記憶體放不放得下。
-- **會員自己管金鑰**：管理者建立會員帳號、設上限（每月 token、每分鐘請求數、最多幾把金鑰、可用模型）；會員登入後自己建立、撤銷 API Key，看自己的用量。
+- **會員自己管金鑰**：管理者建立會員帳號、設上限（每月 token、最多幾把金鑰；不限制每分鐘請求數）；每個帳號都能用系統上全部啟用中的模型；會員登入後自己建立、撤銷 API Key，看自己的用量。
 - **監控與統計**：統一記憶體組成、記憶體壓力、每個 worker 的狀態與速度、每日 token 用量、請求紀錄。
 
 > 雛形與設計討論：見 [docs/design.md](docs/design.md)。
@@ -18,12 +18,12 @@ API 用戶端 ──HTTPS──▶ Cloudflare（api.example.com，只轉送 /v1/
 Mac mini（macOS 原生執行）  cloudflared ──▶ FastAPI :8080 ──串流──▶ 模型 worker（每個模型一個子行程，127.0.0.1:9100+id）
                                               │                       mlx-lm／mlx-vlm／mlx-embeddings
                                               ├──▶ PostgreSQL（會員、金鑰、模型登記、用量、操作紀錄）
-                                              └──▶ Redis（每分鐘請求數、本月 token 計數）
+                                              └──▶ Redis（本月 token 計數）
 ```
 
 MLX 需要 Apple GPU（Metal），Docker 容器跑在 Linux 虛擬機裡用不到，所以 **FastAPI 和模型 worker 必須在 macOS 原生執行**；PostgreSQL 與 Redis 放在 Docker（`docker-compose.yml`）。
 
-一個 `/v1` 請求依序經過：驗證金鑰（401）→ 會員與金鑰狀態（403）→ 解析模型與權限（404）→ 限流與本月配額（429）→ 模型已載入？（503 `model_not_loaded`）→ 排隊（503 `model_busy`）→ 轉給 worker（502）→ 記錄用量。錯誤一律照 OpenAI 的格式回傳。
+一個 `/v1` 請求依序經過：驗證金鑰（401）→ 會員與金鑰狀態（403）→ 解析模型與權限（404）→ 本月配額（429）→ 模型已載入？（503 `model_not_loaded`）→ 排隊（503 `model_busy`）→ 轉給 worker（502）→ 記錄用量。錯誤一律照 OpenAI 的格式回傳。
 
 ## 本機開發
 
@@ -57,7 +57,7 @@ poetry run python main.py                 # http://127.0.0.1:8080
 
 ## 呼叫 API
 
-會員登入後台，在「API Keys」建立金鑰（完整金鑰只顯示一次），「串接說明」頁有網址與範例。
+會員登入後台，在「金鑰管理」建立金鑰（完整金鑰只顯示一次），「請求測試」頁有對應的 Python 與 curl 範例。
 
 ```python
 from openai import OpenAI
@@ -82,9 +82,9 @@ curl https://api.example.com/v1/decisions \
 |------|------|----------|
 | 401 | `invalid_api_key` | 金鑰錯誤或已撤銷 |
 | 403 | `key_disabled` | 帳號停用或金鑰過期 |
-| 404 | `model_not_found` | 模型不存在，或這把金鑰沒有開放 |
+| 404 | `model_not_found` | 模型不存在或已停用 |
 | 400 | `unsupported_capability` | 例如對不支援視覺的模型傳圖片 |
-| 429 | `rate_limit_exceeded`／`insufficient_quota` | 超過每分鐘請求數／本月 token 用完 |
+| 429 | `insufficient_quota` | 本月 token 用完 |
 | 503 | `model_not_loaded`／`model_busy` | 模型沒載入（只能由管理者手動載入）／佇列滿了 |
 | 502 | `worker_error` | worker 執行失敗 |
 
@@ -97,10 +97,12 @@ curl https://api.example.com/v1/decisions \
 | 總覽、系統監控、所有人的用量與請求紀錄 | ✓ | ✓ | |
 | 載入、卸載模型 | ✓ | ✓ | |
 | 新增、刪除、下載模型，修改模型設定 | ✓ | | |
-| 會員帳號（建立、上限、重設密碼、停用、撤銷金鑰） | ✓ | ✓ | |
-| 後台帳號、系統設定、操作紀錄 | ✓ | | |
-| 自己的 API Key、用量、請求紀錄、串接說明 | | | ✓ |
-| 測試台 | ✓ | ✓ | ✓ |
+| 帳號管理：會員（建立、上限、重設密碼、停用、撤銷金鑰） | ✓ | ✓ | |
+| 帳號管理：管理者帳號、操作紀錄；系統設定 | ✓ | | |
+| 自己的 API Key、用量、請求紀錄（服務中心） | ✓ | ✓ | ✓ |
+| 請求測試 | ✓ | ✓ | ✓ |
+
+側欄分兩組：**服務中心**（總覽〔系統可用模型、本月用量趨勢〕、金鑰管理〔點金鑰看它的用量統計〕、請求紀錄、請求測試）人人都有；**管理中心**（模型管理、帳號管理、用量統計〔全部帳號〕、系統監控）只給管理者；系統設定在系統監控右上角（只有 Superuser）。每個帳號的金鑰都能用全部啟用中的模型（沒載入的回 503）。帳號設定（名稱、密碼）與登出在左下角的使用者選單。
 
 會員帳號由管理者建立並產生初始密碼，第一次登入必須修改，不開放自行註冊。
 

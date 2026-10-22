@@ -32,7 +32,7 @@ async def test_chat_completion_and_usage_recorded(client, db, member, member_key
     assert body["object"] == "chat.completion" and body["model"] == "qwen3-4b"
     assert "假 worker" in body["choices"][0]["message"]["content"]
     assert body["usage"]["total_tokens"] == body["usage"]["prompt_tokens"] + body["usage"]["completion_tokens"] > 0
-    assert r.headers["x-request-id"].startswith("req_") and r.headers["x-ratelimit-limit-requests"] == "60"
+    assert r.headers["x-request-id"].startswith("req_")
     await gateway.drain()
     log = db.query(RequestLog).one()
     assert (log.status_code, log.endpoint, log.user_id) == (200, "chat/completions", member.id)
@@ -137,12 +137,20 @@ async def test_auth_errors_are_openai_shaped_and_logged(client, db, loaded):
     assert db.query(RequestLog).filter(RequestLog.status_code == 401).count() == 2
 
 
-async def test_model_not_allowed_is_404(client, db, member, models, loaded):
-    r = await client.post("/api/me/keys", json={"name": "只有 4b", "model_ids": [models["qwen3-4b"].id]}, headers=auth(member))
-    key = r.json()["key"]
-    r = await client.post("/v1/chat/completions", headers=bearer(key),
-                          json={"model": "qwen3-vl-8b", "messages": [{"role": "user", "content": "x"}]})
+async def test_unknown_model_is_404(client, member_key, loaded):
+    r = await client.post("/v1/chat/completions", headers=bearer(member_key),
+                          json={"model": "no-such-model", "messages": [{"role": "user", "content": "x"}]})
     assert r.status_code == 404 and r.json()["error"]["code"] == "model_not_found"
+
+
+async def test_disabled_model_is_hidden(client, db, models, member_key, loaded):
+    models["qwen3-vl-8b"].is_enabled = False
+    db.commit()
+    ids = {m["id"] for m in (await client.get("/v1/models", headers=bearer(member_key))).json()["data"]}
+    assert "qwen3-vl-8b" not in ids
+    r = await client.post("/v1/chat/completions", headers=bearer(member_key),
+                          json={"model": "qwen3-vl-8b", "messages": [{"role": "user", "content": "x"}]})
+    assert r.status_code == 404
 
 
 async def test_model_not_loaded_is_503(client, db, member_key, loaded):
@@ -153,16 +161,12 @@ async def test_model_not_loaded_is_503(client, db, member_key, loaded):
     assert (log.status_code, log.error_code) == (503, "model_not_loaded")
 
 
-async def test_rate_limit(client, member, loaded):
-    r = await client.post("/api/me/keys", json={"name": "慢", "rpm_limit": 2}, headers=auth(member))
-    key = r.json()["key"]
-    for _ in range(2):
-        assert (await client.get("/v1/models", headers=bearer(key))).status_code == 200
+async def test_no_per_minute_limit(client, member_key, loaded):
     body = {"model": "qwen3-4b", "messages": [{"role": "user", "content": "x"}]}
-    assert (await client.post("/v1/chat/completions", headers=bearer(key), json=body)).status_code == 200
-    assert (await client.post("/v1/chat/completions", headers=bearer(key), json=body)).status_code == 200
-    r = await client.post("/v1/chat/completions", headers=bearer(key), json=body)
-    assert r.status_code == 429 and r.json()["error"]["code"] == "rate_limit_exceeded" and r.headers["retry-after"]
+    for _ in range(80):
+        r = await client.post("/v1/chat/completions", headers=bearer(member_key), json=body)
+        assert r.status_code == 200
+    assert "x-ratelimit-limit-requests" not in r.headers
 
 
 async def test_monthly_quota(client, db, member, member_key, loaded):
@@ -193,3 +197,18 @@ async def test_playground_uses_login_identity(client, db, member, admin, loaded)
     rows = db.query(UsageDaily).order_by(UsageDaily.user_id).all()
     assert {(r.user_id, r.api_key_id) for r in rows} == {(member.id, 0), (admin.id, 0)}
     assert {log.source for log in db.query(RequestLog).all()} == {"playground"}
+
+
+async def test_usage_per_key(client, db, member, loaded):
+    keys = []
+    for name in ("甲", "乙"):
+        keys.append((await client.post("/api/me/keys", json={"name": name}, headers=auth(member))).json())
+    body = {"model": "qwen3-4b", "messages": [{"role": "user", "content": "hi"}]}
+    for _ in range(2):
+        await client.post("/v1/chat/completions", headers=bearer(keys[0]["key"]), json=body)
+    await client.post("/v1/chat/completions", headers=bearer(keys[1]["key"]), json=body)
+    await gateway.drain()
+    one = (await client.get(f"/api/me/usage?days=7&api_key_id={keys[0]['id']}", headers=auth(member))).json()
+    assert one["totals"]["requests"] == 2
+    reqs = (await client.get(f"/api/me/requests?api_key_id={keys[1]['id']}", headers=auth(member))).json()
+    assert len(reqs) == 1 and reqs[0]["key_name"] == "乙"

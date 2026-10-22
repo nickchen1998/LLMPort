@@ -12,7 +12,7 @@ export const useAuth = defineStore('auth', {
     isAdmin: (s) => ['superuser', 'admin'].includes(s.user?.role),
     isSU: (s) => s.user?.role === 'superuser',
     isMember: (s) => s.user?.role === 'member',
-    home: (s) => (s.user?.role === 'member' ? '/my' : '/dashboard'),
+    home: () => '/dashboard',
   },
   actions: {
     async login(email, password) {

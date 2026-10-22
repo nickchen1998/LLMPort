@@ -115,8 +115,3 @@ def require_superuser(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要 Superuser 權限")
     return user
 
-
-def require_member(user: User = Depends(get_current_user)) -> User:
-    if user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="這個功能給會員使用；管理者帳號沒有自己的 API Key")
-    return user

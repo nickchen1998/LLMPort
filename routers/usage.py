@@ -9,23 +9,10 @@ from sqlalchemy.orm import Session
 from models.llm_models import LLMModel
 from models.users import User
 from services import usage
-from services.catalog import model_out
-from services.model_manager import manager
 from utils.auth import require_admin
 from utils.db_conn import get_db
 
 router = APIRouter(prefix="/api", tags=["用量統計"])
-
-
-@router.get("/overview", summary="總覽頁的數字")
-def overview(admin: User = Depends(require_admin), db: Session = Depends(get_db)):
-    series = usage.daily_series(db, 14)["series"]
-    return {
-        "today": usage.today_totals(db),
-        "spark": [sum(s["prompt"][i] + s["completion"][i] for s in series) for i in range(14)],
-        "recent": usage.request_rows(db, limit=8),
-        "models": [model_out(m, manager.get(m.id).public()) for m in db.query(LLMModel).order_by(LLMModel.id).all()],
-    }
 
 
 @router.get("/usage", summary="每日用量（依模型）與依會員彙總")

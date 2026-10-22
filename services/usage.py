@@ -72,14 +72,15 @@ def _rows(db: Session, start: date, user_id: int | None = None, model_id: int | 
     return q.all()
 
 
-def daily_series(db: Session, days: int, user_id: int | None = None, model_id: int | None = None) -> dict:
+def daily_series(db: Session, days: int, user_id: int | None = None, model_id: int | None = None,
+                 api_key_id: int | None = None) -> dict:
     """每日 token（依模型），給堆疊長條圖。"""
     dates = day_range(days)
     index = {d: i for i, d in enumerate(dates)}
     models = {m.id: m for m in db.query(LLMModel).all()}
     series: dict[int, dict] = {}
     totals = {"prompt_tokens": 0, "completion_tokens": 0, "requests": 0, "errors": 0}
-    for r in _rows(db, dates[0], user_id, model_id):
+    for r in _rows(db, dates[0], user_id, model_id, api_key_id):
         s = series.setdefault(r.model_id, {"model_id": r.model_id,
                                            "name": models[r.model_id].api_name if r.model_id in models else "（已刪除的模型）",
                                            "prompt": [0] * days, "completion": [0] * days})

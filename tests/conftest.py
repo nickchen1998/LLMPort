@@ -116,10 +116,7 @@ def admin(db):
 
 @pytest.fixture()
 def member(db, models):
-    user = make_user(db, "an@example.com", rpm_limit=60, max_keys=3)
-    user.allowed_models = list(models.values())
-    db.commit()
-    return user
+    return make_user(db, "an@example.com", max_keys=3)
 
 
 @pytest.fixture()

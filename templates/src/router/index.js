@@ -9,6 +9,10 @@ const router = createRouter({
     { path: '/login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/change-password', component: () => import('../views/ChangePasswordView.vue') },
     { path: '/', component: AppShell, children: [{ path: '', redirect: () => useAuth().home }, ...shellRoutes] },
+    { path: '/my', redirect: '/dashboard' },
+    { path: '/settings', redirect: { path: '/monitor', query: { settings: '1' } } },
+    { path: '/members', redirect: (to) => ({ path: '/accounts', query: to.query }) },
+    { path: '/admins', redirect: { path: '/accounts', query: { tab: 'admins' } } },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

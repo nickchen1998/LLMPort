@@ -2,18 +2,20 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import Icon from '../../components/Icon.vue'
+import MemBar from '../../components/MemBar.vue'
 import Pill from '../../components/Pill.vue'
 import ProjBar from '../../components/ProjBar.vue'
 import { api } from '../../api/client'
 import { useAuth } from '../../stores/auth'
+import { useSystem } from '../../stores/system'
 import { toast } from '../../stores/toast'
 import { CAP, DL, MS, fmtGB, modelColor, pct, relTime } from '../../composables/format'
 
 const auth = useAuth()
+const system = useSystem()
 const route = useRoute()
 const router = useRouter()
 const data = ref(null)
-const members = ref([])
 const selId = ref(Number(route.query.id) || null)
 const panel = ref(route.query.action || null)
 const tab = ref('runtime')
@@ -29,7 +31,6 @@ async function load() {
 }
 onMounted(async () => {
   await load()
-  members.value = await api('/api/members').catch(() => [])
   timer = setInterval(load, 2000)
 })
 onBeforeUnmount(() => clearInterval(timer))
@@ -38,10 +39,10 @@ const m = computed(() => data.value?.models.find((x) => x.id === selId.value))
 const rt = computed(() => m.value?.runtime || { status: 'unloaded' })
 const budget = computed(() => data.value?.budget)
 const runtimes = computed(() => Object.fromEntries((data.value?.models || []).map((x) => [x.id, x.runtime])))
+const pressure = computed(() => ({ normal: { c: 'good', t: '正常' }, warn: { c: 'hold', t: '偏高' }, critical: { c: 'crit', t: '嚴重' } })[system.host?.pressure] || { c: 'idle', t: '—' })
 const loadedCount = computed(() => (data.value?.models || []).filter((x) => x.runtime.status === 'loaded').length)
 const check = computed(() => m.value?.load_check)
 const metalClass = computed(() => { const r = budget.value ? budget.value.models_mb / budget.value.metal_limit_mb : 0; return r > 0.92 ? 'crit' : r > 0.8 ? 'warn' : '' })
-const access = computed(() => members.value.map((u) => ({ u, on: u.model_ids.includes(selId.value) })))
 
 function pick(x) {
   adding.value = false
@@ -108,12 +109,28 @@ async function submitAdd() {
 </script>
 
 <template>
-  <div v-if="data" class="page split">
-    <section class="card">
+  <div v-if="data" class="page fill">
+      <section class="card hero">
+        <div class="hero-l">
+          <div class="eyebrow">可再載入的模型記憶體</div>
+          <div class="hero-num num">{{ fmtGB(budget.can_load_mb) }}<span>GB</span></div>
+          <p class="t13 muted" style="margin: 0">已扣掉 {{ fmtGB(budget.headroom_mb) }} GB 安全餘裕。載入模型時，預估需要的記憶體超過這個數字就會被擋下。</p>
+          <div class="hero-meta"><Pill :c="pressure.c" :t="'記憶體壓力 ' + pressure.t" /><span v-if="system.host" class="t13 muted num">Swap {{ fmtGB(system.host.swap_used_mb) }} GB</span></div>
+        </div>
+        <div class="hero-r">
+          <div class="row-between"><span class="label">統一記憶體 {{ fmtGB(budget.total_mb) }} GB</span><span class="t13 muted num">已用 {{ fmtGB(budget.system_mb + budget.models_mb) }} GB</span></div>
+          <MemBar :budget="budget" :runtimes="runtimes" />
+          <div class="row-between" style="margin-top: 14px"><span class="label">模型佔用 / Metal 上限</span><span class="t13 num">{{ fmtGB(budget.models_mb) }} / {{ fmtGB(budget.metal_limit_mb) }} GB</span></div>
+          <div class="meter" :class="metalClass"><i :style="{ width: pct(budget.models_mb / budget.metal_limit_mb) }"></i></div>
+          <p class="t12 muted" style="margin: 0">Metal 上限是 GPU 能鎖定的記憶體（<code>iogpu.wired_limit_mb</code>），在系統設定調整。</p>
+        </div>
+      </section>
+
+    <div class="split two grow">
+    <section class="card col-card">
       <div class="card-h"><h2>已登記的模型</h2><span class="t13 muted">{{ loadedCount }} 個已載入</span>
         <button v-if="auth.isSU" class="btn btn-s btn-sm ml-auto" @click="adding = true"><Icon n="plus" :s="15" />新增模型</button></div>
-      <div v-if="data.fake_workers" class="notice notice-warn" style="margin-bottom: 10px">目前是開發模式（FAKE_WORKERS=true）：沒有模型檔的模型會用假 worker 載入，回覆與記憶體都是模擬的。</div>
-      <div class="mlist">
+      <div class="mlist scroll">
         <button v-for="x in data.models" :key="x.id" class="mrow" :class="{ on: !adding && x.id === selId }" @click="pick(x)">
           <span class="sw" :style="{ background: modelColor(x.id) }"></span>
           <span class="mrow-main"><span class="mono strong ell">{{ x.api_name }}</span><span class="t12 muted ell">{{ x.source_repo }}</span>
@@ -122,14 +139,9 @@ async function submitAdd() {
         </button>
         <div v-if="!data.models.length" class="empty">還沒有登記模型。執行 <code>poetry run python seed_models.py</code> 登記預設的三個模型。</div>
       </div>
-      <div class="budget">
-        <div class="row-between t13"><span class="muted">模型佔用 / Metal 上限</span><span class="num">{{ fmtGB(budget.models_mb) }} / {{ fmtGB(budget.metal_limit_mb) }} GB · 可再載入 {{ fmtGB(budget.can_load_mb) }} GB</span></div>
-        <div class="meter" :class="metalClass"><i :style="{ width: pct(budget.models_mb / budget.metal_limit_mb) }"></i></div>
-        <p class="t12 muted" style="margin: 0">只有手動載入與卸載：沒載入的模型被呼叫時，API 回 <code>503 model_not_loaded</code>，不會自動載入或擠掉其他模型。</p>
-      </div>
     </section>
 
-    <section v-if="adding" class="card detail">
+    <section v-if="adding" class="card detail scroll-y">
       <div class="d-head"><h2>新增模型</h2><button class="btn btn-s btn-sm" @click="adding = false">取消</button></div>
       <p class="t13 ink2" style="margin: 0">登記 Hugging Face 上 MLX 格式的模型。下載完成後是「未載入」，按「載入」才會佔用記憶體。檔案放在 <code>{{ data.model_dir }}</code>。</p>
       <div class="form-grid">
@@ -144,7 +156,7 @@ async function submitAdd() {
       <div class="ap-actions"><button class="btn btn-p btn-sm" :disabled="!canAdd" @click="submitAdd">{{ form.start_download ? '登記並下載' : '登記' }}</button><span v-if="!canAdd" class="t12 muted">填 repo、API 名稱，至少選一種能力。</span></div>
     </section>
 
-    <section v-else-if="m" class="card detail">
+    <section v-else-if="m" class="card detail scroll-y">
       <div class="d-head">
         <div class="d-title"><span class="sw sw-lg" :style="{ background: modelColor(m.id) }"></span><div style="min-width: 0"><h2 class="mono ell">{{ m.api_name }}</h2><div class="t13 muted">{{ m.display_name }} · {{ m.quant || '—' }} · {{ m.engine }}</div></div></div>
         <div class="d-actions">
@@ -193,7 +205,6 @@ async function submitAdd() {
         <div class="tabs">
           <button class="tab" :class="{ on: tab === 'runtime' }" @click="tab = 'runtime'">執行狀態</button>
           <button class="tab" :class="{ on: tab === 'config' }" @click="tab = 'config'">設定</button>
-          <button class="tab" :class="{ on: tab === 'access' }" @click="tab = 'access'">開放對象 <span class="count">{{ access.filter((a) => a.on).length }}</span></button>
         </div>
 
         <div v-if="tab === 'runtime'" class="detail">
@@ -206,9 +217,8 @@ async function submitAdd() {
             <div v-if="m.capabilities.includes('chat')"><dt>輸出速度</dt><dd class="num">{{ rt.status === 'loaded' && rt.tps ? rt.tps + ' tok/s' : '—' }}</dd></div>
             <div><dt>首字延遲</dt><dd class="num">{{ rt.status === 'loaded' && rt.ttft_ms ? rt.ttft_ms + ' ms' : '—' }}</dd></div>
             <div><dt>下載</dt><dd>{{ DL[m.download_status] }}{{ m.size_bytes ? ' · ' + fmtGB(m.size_bytes / 1048576) + ' GB' : '' }}</dd></div>
-            <div class="full"><dt>本機路徑</dt><dd class="mono t13">{{ m.local_path || data.model_dir + '/' + m.source_repo.split('/')[1] }}</dd></div>
+            <div class="full"><dt>模型來源</dt><dd class="mono t13"><a :href="'https://huggingface.co/' + m.source_repo" target="_blank" rel="noopener">https://huggingface.co/{{ m.source_repo }}</a></dd></div>
           </dl>
-          <div v-if="rt.status === 'unloaded'" class="notice notice-info">這個模型沒有載入。會員呼叫它會收到 503，要由管理者在這裡按「載入」。</div>
           <div v-if="auth.isSU" class="ap-actions">
             <button v-if="['not_downloaded', 'failed'].includes(m.download_status)" class="btn btn-s btn-sm" :disabled="busy || rt.status !== 'unloaded'" @click="doDownload"><Icon n="download" :s="15" />從 Hugging Face 下載</button>
             <template v-if="rt.status === 'unloaded' && m.download_status !== 'downloading'">
@@ -234,15 +244,9 @@ async function submitAdd() {
           </div>
           <div v-if="dirty && auth.isSU" class="savebar"><span>有未儲存的變更（別名與上下文長度以外的設定，下次載入才生效）</span><button class="btn btn-s btn-sm" @click="reset">捨棄</button><button class="btn btn-p btn-sm" @click="save">儲存</button></div>
         </div>
-
-        <div v-if="tab === 'access'" class="detail">
-          <p class="t13 muted" style="margin: 0">哪些會員可以呼叫這個模型。在「會員」頁的帳號與上限調整。</p>
-          <div class="scroll-x"><table class="tbl"><thead><tr><th>會員</th><th>狀態</th><th>可用</th><th></th></tr></thead>
-            <tbody><tr v-for="a in access" :key="a.u.id"><td>{{ a.u.name }} <span class="t12 muted">{{ a.u.email }}</span></td><td><Pill :c="a.u.is_active ? 'good' : 'idle'" :t="a.u.is_active ? '啟用中' : '已停用'" /></td><td>{{ a.on ? '可以' : '—' }}</td><td class="r"><RouterLink class="btn btn-g btn-xs" :to="{ path: '/members', query: { id: a.u.id } }">前往設定</RouterLink></td></tr></tbody></table></div>
-          <div v-if="!access.length" class="empty">還沒有會員。</div>
-        </div>
       </div>
     </section>
+    </div>
   </div>
   <div v-else class="loading-line">載入中…</div>
 </template>

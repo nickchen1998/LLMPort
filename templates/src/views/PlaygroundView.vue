@@ -143,8 +143,8 @@ const hit = (a, p) => (a.type === 'choice' ? p.value === a.choice : p.probabilit
 </script>
 
 <template>
-  <div class="pg">
-    <section class="card pg-main">
+  <div class="pg two">
+    <section class="card pg-main scroll-y">
       <div class="tabs" style="margin-bottom: 0">
         <button class="tab" :class="{ on: ep === 'chat' }" @click="ep = 'chat'">對話 · 視覺</button>
         <button v-if="hasCap('embedding')" class="tab" :class="{ on: ep === 'embed' }" @click="ep = 'embed'">嵌入</button>
@@ -208,9 +208,9 @@ const hit = (a, p) => (a.type === 'choice' ? p.value === a.choice : p.probabilit
         </template>
       </div>
     </section>
-    <section class="card pg-code">
+    <section class="card pg-code col-card">
       <div class="card-h"><h2>呼叫方式</h2><div class="seg ml-auto" role="group" aria-label="語言"><button :class="{ on: lang === 'python' }" @click="lang = 'python'">Python</button><button :class="{ on: lang === 'curl' }" @click="lang = 'curl'">curl</button></div></div>
-      <pre ref="codeEl" class="code">{{ code }}</pre>
+      <pre ref="codeEl" class="code scroll">{{ code }}</pre>
       <div class="ap-actions"><button class="btn btn-s btn-sm" @click="copyCode"><Icon n="copy" :s="15" />複製</button><span class="t12 muted">{{ auth.isMember ? '把 sk-lp-... 換成你在 API Keys 建立的金鑰。' : '把金鑰換成會員自己的。' }}</span></div>
     </section>
   </div>

@@ -1,6 +1,5 @@
-"""限流與本月用量：Redis 計數。Redis 掛掉時放行並記警告（best-effort，同 PTCFormosAI）。"""
+"""本月用量：Redis 計數。Redis 掛掉時改從資料庫算（best-effort）。不限制每分鐘請求數。"""
 import logging
-import time
 from datetime import date
 
 from sqlalchemy import func
@@ -13,28 +12,6 @@ from utils.redis_conn import get_redis
 
 logger = logging.getLogger(__name__)
 QUOTA_TTL = 40 * 86400
-
-
-async def check_rate(bucket: str, limit: int) -> dict:
-    """每分鐘固定視窗；回傳要放進回應的 x-ratelimit-* 標頭（跟 OpenAI 同名）。"""
-    now = time.time()
-    reset = 60 - int(now % 60)
-    key = f"rl:{bucket}:{int(now // 60)}"
-    try:
-        redis = get_redis()
-        count = await redis.incr(key)
-        if count == 1:
-            await redis.expire(key, 70)
-    except Exception:  # noqa: BLE001
-        logger.warning("限流檢查略過（Redis 異常）", exc_info=True)
-        return {}
-    headers = {"x-ratelimit-limit-requests": str(limit),
-               "x-ratelimit-remaining-requests": str(max(0, limit - count)),
-               "x-ratelimit-reset-requests": f"{reset}s"}
-    if count > limit:
-        raise OpenAIError(429, "rate_limit_exceeded", f"Rate limit reached: {limit} requests per minute.",
-                          headers={**headers, "Retry-After": str(reset)})
-    return headers
 
 
 def _quota_key(user_id: int) -> str:

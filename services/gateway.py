@@ -3,7 +3,7 @@
 1. 驗證金鑰（雜湊比對）→ 401 invalid_api_key
 2. 會員與金鑰狀態（停用、過期）→ 403 key_disabled
 3. 解析模型與權限（別名 → 實際模型）→ 404 model_not_found
-4. 限流與本月配額（Redis）→ 429 rate_limit_exceeded／insufficient_quota
+4. 本月配額（Redis）→ 429 insufficient_quota
 5. 模型已載入？（只手動載入）→ 503 model_not_loaded
 6. 排入佇列 → 503 model_busy
 7. 轉給 worker 並回傳（對話可串流）→ 502 worker_error
@@ -44,11 +44,8 @@ class Caller:
     user_id: int
     email: str
     quota: int                  # 本月 token 上限，0 表示不限
-    rpm: int
     key_id: int | None          # None 表示從測試台呼叫
-    model_ids: set[int] | None  # None 表示不限（管理者在測試台）
     source: str
-    rate_bucket: str
 
 
 def caller_from_key(db: Session, request: Request, authorization: str | None) -> Caller:
@@ -65,16 +62,16 @@ def caller_from_key(db: Session, request: Request, authorization: str | None) ->
         raise key_disabled("Your account has been disabled.")
     if key.is_expired():
         raise key_disabled("This API key has expired.")
-    return Caller(user_id=user.id, email=user.email, quota=user.monthly_token_quota, rpm=key.effective_rpm(),
-                  key_id=key.id, model_ids=key.effective_model_ids(), source=Source.API, rate_bucket=f"k{key.id}")
+    return Caller(user_id=user.id, email=user.email, quota=user.monthly_token_quota,
+                  key_id=key.id, source=Source.API)
 
 
 def caller_from_user(user: User) -> Caller:
     if user.is_admin:
-        return Caller(user_id=user.id, email=user.email, quota=0, rpm=600, key_id=None, model_ids=None,
-                      source=Source.PLAYGROUND, rate_bucket=f"u{user.id}")
-    return Caller(user_id=user.id, email=user.email, quota=user.monthly_token_quota, rpm=user.rpm_limit, key_id=None,
-                  model_ids={m.id for m in user.allowed_models}, source=Source.PLAYGROUND, rate_bucket=f"u{user.id}")
+        return Caller(user_id=user.id, email=user.email, quota=0, key_id=None,
+                      source=Source.PLAYGROUND)
+    return Caller(user_id=user.id, email=user.email, quota=user.monthly_token_quota, key_id=None,
+                  source=Source.PLAYGROUND)
 
 
 @dataclass
@@ -92,7 +89,7 @@ def resolve_model(db: Session, name: str, caller: Caller, capability: str) -> Ta
         if m.api_name == name or name in (m.aliases or []):
             model = m
             break
-    if model is None or (caller.model_ids is not None and model.id not in caller.model_ids):
+    if model is None:
         raise model_not_found(name)
     if not model.has(capability):
         what = {"chat": "chat completions", "embedding": "embeddings", "decision": "decisions"}[capability]
@@ -104,8 +101,6 @@ def resolve_model(db: Session, name: str, caller: Caller, capability: str) -> Ta
 def list_models(db: Session, caller: Caller) -> dict:
     data = []
     for m in db.query(LLMModel).filter(LLMModel.is_enabled.is_(True)).order_by(LLMModel.id).all():
-        if caller.model_ids is not None and m.id not in caller.model_ids:
-            continue
         data.append({"id": m.api_name, "object": "model", "created": int(m.created_at.timestamp()), "owned_by": "llmport",
                      "loaded": manager.get(m.id).status == "loaded", "capabilities": list(m.capabilities or [])})
     return {"object": "list", "data": data}
@@ -185,7 +180,6 @@ def record_error(request: Request, err: OpenAIError) -> None:
 
 async def prepare(call: Call, target: Target) -> Runtime:
     call.model_id = target.model_id
-    call.headers = await limits.check_rate(call.caller.rate_bucket, call.caller.rpm)
     await limits.check_quota(call.caller.user_id, call.caller.quota)
     rt = manager.get(target.model_id)
     if rt.status != "loaded":

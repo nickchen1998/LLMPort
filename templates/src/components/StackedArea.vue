@@ -1,15 +1,26 @@
 <script setup>
 // 記憶體組成堆疊面積圖（GB），滑過顯示十字線與明細
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { fmtGB } from '../composables/format'
 
-const props = defineProps({ labels: Array, series: Array, yMax: Number, height: { type: Number, default: 240 } })
-const W = 760, L = 40, R = 8, T = 12, B = 26
-const H = computed(() => props.height)
+const props = defineProps({ labels: Array, series: Array, yMax: Number, height: { type: Number, default: 240 }, fill: Boolean })
+const L = 40, R = 8, T = 12, B = 26
+// fill 時跟著容器大小重畫（用實際像素當 viewBox，字不會被拉伸）
+const box = ref(null)
+const size = ref({ w: 760, h: props.height })
+const W = computed(() => size.value.w)
+const H = computed(() => size.value.h)
+let ro = null
+onMounted(() => {
+  if (!props.fill || !box.value) return
+  ro = new ResizeObserver(([e]) => { const { width, height } = e.contentRect; if (width > 0 && height > 0) size.value = { w: Math.round(width), h: Math.max(160, Math.round(height)) } })
+  ro.observe(box.value)
+})
+onBeforeUnmount(() => ro?.disconnect())
 const hover = ref(-1)
 const svg = ref(null)
 const n = computed(() => props.labels.length)
-const x = (i) => L + (W - L - R) * (n.value <= 1 ? 0 : i / (n.value - 1))
+const x = (i) => L + (W.value - L - R) * (n.value <= 1 ? 0 : i / (n.value - 1))
 const y = (v) => T + (H.value - T - B) * (1 - v / props.yMax)
 const ticks = computed(() => [0, 1, 2, 3, 4].map((k) => (k * props.yMax) / 4))
 const bands = computed(() => {
@@ -26,15 +37,15 @@ const totals = computed(() => props.labels.map((_, i) => props.series.reduce((a,
 function onMove(e) {
   if (!n.value) return
   const r = svg.value.getBoundingClientRect()
-  const px = ((e.clientX - r.left) / r.width) * W
-  hover.value = Math.max(0, Math.min(n.value - 1, Math.round(((px - L) / (W - L - R)) * (n.value - 1))))
+  const px = ((e.clientX - r.left) / r.width) * W.value
+  hover.value = Math.max(0, Math.min(n.value - 1, Math.round(((px - L) / (W.value - L - R)) * (n.value - 1))))
 }
 const every = computed(() => Math.max(1, Math.round(n.value / 4)))
-const tipStyle = computed(() => (hover.value < 0 ? {} : { left: Math.max(16, Math.min(84, (x(hover.value) / W) * 100)) + '%', top: Math.max(30, (y(totals.value[hover.value]) / H.value) * 100) + '%' }))
+const tipStyle = computed(() => (hover.value < 0 ? {} : { left: Math.max(16, Math.min(84, (x(hover.value) / W.value) * 100)) + '%', top: Math.max(30, (y(totals.value[hover.value]) / H.value) * 100) + '%' }))
 </script>
 
 <template>
-  <div class="chart">
+  <div ref="box" class="chart" :class="{ 'chart-fill': fill }">
     <svg ref="svg" :viewBox="`0 0 ${W} ${H}`" role="img" aria-label="記憶體組成堆疊面積圖" @mousemove="onMove" @mouseleave="hover = -1">
       <g class="ax">
         <g v-for="t in ticks" :key="t"><line class="gridl" :x1="L" :x2="W - R" :y1="y(t)" :y2="y(t)" /><text :x="L - 8" :y="y(t) + 4" text-anchor="end">{{ fmtGB(t) }}</text></g>
