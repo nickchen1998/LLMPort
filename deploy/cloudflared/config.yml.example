@@ -1,0 +1,21 @@
+# Cloudflare Tunnel 設定範例：複製到 ~/.cloudflared/config.yml 後修改網域與 tunnel 名稱。
+#   cloudflared tunnel login
+#   cloudflared tunnel create llmport
+#   cloudflared tunnel route dns llmport api.example.com
+#   cloudflared tunnel route dns llmport console.example.com
+#   sudo cloudflared service install          # 開機自動啟動
+#
+# 兩個網域走同一條 tunnel；API 網域只轉送 /v1/*，其他路徑一律 404（FastAPI 依 API_HOST 也會再擋一次）。
+# 管理者與會員都從後台網域登入，所以後台不加「只允許你 email」的 Cloudflare Access；
+# 建議在 Cloudflare 的 WAF 對 /api/auth/login 加一條限流規則。
+tunnel: llmport
+credentials-file: /Users/you/.cloudflared/<tunnel-id>.json
+metrics: 127.0.0.1:20241          # 後台監控讀 /ready；.env 設 CLOUDFLARED_METRICS_URL=http://127.0.0.1:20241
+
+ingress:
+  - hostname: api.example.com
+    path: ^/v1/
+    service: http://127.0.0.1:8080
+  - hostname: console.example.com
+    service: http://127.0.0.1:8080
+  - service: http_status:404

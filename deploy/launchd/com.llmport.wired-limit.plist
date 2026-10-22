@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  開機時調高 GPU 能鎖定的記憶體（iogpu.wired_limit_mb）。這個值重開機會還原，所以用 LaunchDaemon（root）每次開機套用。
+  數字要跟後台「系統設定 → Metal 上限」一致，例如 18 GB = 18432。至少留 3 GB 給 macOS。
+  sudo cp deploy/launchd/com.llmport.wired-limit.plist /Library/LaunchDaemons/
+  sudo chown root:wheel /Library/LaunchDaemons/com.llmport.wired-limit.plist
+  sudo launchctl load -w /Library/LaunchDaemons/com.llmport.wired-limit.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.llmport.wired-limit</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/sbin/sysctl</string>
+    <string>iogpu.wired_limit_mb=18432</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>

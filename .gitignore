@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# 設定與執行期檔案
+.env
+tmp_files/
+model_files/
+
+# 前端
+templates/node_modules/
+templates/dist/
+
+# 編輯器與系統
+.DS_Store
+.idea/
+.vscode/
+
+# Claude Code 本機設定
+.claude/

@@ -1,0 +1,102 @@
+"""會員、金鑰與後台帳號的共用邏輯，以及給前端的輸出格式。"""
+import re
+from datetime import date, datetime, time
+
+from fastapi import HTTPException, status
+from sqlalchemy import func
+from sqlalchemy.orm import Session
+
+from models.llm_models import LLMModel
+from models.users import ApiKey, User
+from utils.api_key import generate_api_key
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def bad_request(message: str) -> HTTPException:
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
+
+
+def clean_email(db: Session, email: str, exclude_id: int | None = None) -> str:
+    value = (email or "").strip().lower()
+    if not _EMAIL.match(value):
+        raise bad_request("Email 格式不正確")
+    q = db.query(User).filter(func.lower(User.email) == value)
+    if exclude_id:
+        q = q.filter(User.id != exclude_id)
+    if q.first():
+        raise bad_request("這個 Email 已經有人用了")
+    return value
+
+
+def models_by_ids(db: Session, ids: list[int]) -> list[LLMModel]:
+    models = db.query(LLMModel).filter(LLMModel.id.in_(ids)).all() if ids else []
+    if len(models) != len(set(ids)):
+        raise bad_request("有模型不存在")
+    return models
+
+
+def _iso(value) -> str | None:
+    return value.isoformat(timespec="seconds") if isinstance(value, datetime) else value.isoformat() if value else None
+
+
+def me_out(user: User) -> dict:
+    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role,
+            "must_change_password": user.must_change_password}
+
+
+def key_out(key: ApiKey, month_tokens: int = 0) -> dict:
+    return {"id": key.id, "name": key.name, "masked": key.masked,
+            "model_ids": [m.id for m in key.models] or None, "model_names": [m.api_name for m in key.models] or None,
+            "rpm_limit": key.rpm_limit, "effective_rpm": key.effective_rpm(),
+            "expires_at": key.expires_at.date().isoformat() if key.expires_at else None, "expired": key.is_expired(),
+            "last_used_at": _iso(key.last_used_at), "created_at": _iso(key.created_at),
+            "revoked_at": _iso(key.revoked_at), "month_tokens": month_tokens}
+
+
+def member_out(user: User, month_used: int = 0) -> dict:
+    return {"id": user.id, "email": user.email, "name": user.name, "note": user.note, "is_active": user.is_active,
+            "monthly_token_quota": user.monthly_token_quota, "rpm_limit": user.rpm_limit, "max_keys": user.max_keys,
+            "model_ids": [m.id for m in user.allowed_models], "model_names": [m.api_name for m in user.allowed_models],
+            "last_login_at": _iso(user.last_login_at), "created_at": _iso(user.created_at), "month_used": month_used,
+            "active_keys": sum(1 for k in user.api_keys if not k.is_revoked)}
+
+
+def admin_out(user: User) -> dict:
+    return {"id": user.id, "email": user.email, "name": user.name, "role": user.role, "is_active": user.is_active,
+            "last_login_at": _iso(user.last_login_at), "created_at": _iso(user.created_at)}
+
+
+def create_key(db: Session, user: User, name: str, model_ids: list[int] | None, rpm_limit: int | None,
+               expires_on: date | None) -> tuple[ApiKey, str]:
+    """會員建立自己的金鑰：範圍不能超過管理者給的上限。回傳（金鑰, 完整金鑰）。"""
+    if not (name or "").strip():
+        raise bad_request("請填金鑰名稱")
+    active = [k for k in user.api_keys if not k.is_revoked]
+    if len(active) >= user.max_keys:
+        raise bad_request(f"最多 {user.max_keys} 把有效金鑰，請先撤銷不用的，或請管理者調高上限")
+    allowed = {m.id for m in user.allowed_models}
+    if model_ids is not None:
+        if not model_ids:
+            raise bad_request("至少選一個模型")
+        if not set(model_ids) <= allowed:
+            raise bad_request("只能選管理者開放給你的模型")
+    if rpm_limit is not None and not 1 <= rpm_limit <= user.rpm_limit:
+        raise bad_request(f"每分鐘請求數要在 1 到 {user.rpm_limit} 之間（管理者給你的上限）")
+    if expires_on and expires_on <= date.today():
+        raise bad_request("到期日要在今天之後")
+    full, prefix, last4, hashed = generate_api_key()
+    key = ApiKey(user_id=user.id, name=name.strip()[:100], key_prefix=prefix, key_last4=last4, hashed_key=hashed,
+                 rpm_limit=rpm_limit, expires_at=datetime.combine(expires_on, time(23, 59, 59)) if expires_on else None)
+    if model_ids:
+        key.models = models_by_ids(db, model_ids)
+    db.add(key)
+    db.flush()
+    return key, full
+
+
+def revoke_key(key: ApiKey, by: User) -> None:
+    if key.is_revoked:
+        raise bad_request("這把金鑰已經撤銷了")
+    key.revoked_at = datetime.now()
+    key.revoked_by = by.id

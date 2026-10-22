@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LLMPort FastAPI（開機自動啟動、掛掉自動重啟）
+  1. 把 __LLMPORT_DIR__ 換成專案的完整路徑，例如 /Users/you/LLMPort
+  2. cp deploy/launchd/com.llmport.api.plist ~/Library/LaunchAgents/
+  3. launchctl load -w ~/Library/LaunchAgents/com.llmport.api.plist
+  模型 worker 由 FastAPI 自己啟動，不需要另外設定。
+  用 LaunchAgent（使用者登入後執行），模型檔與 Hugging Face 設定都在這個使用者底下；請在「使用者與群組」設定自動登入，
+  停電重開後才會自己起來。
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.llmport.api</string>
+  <key>WorkingDirectory</key>
+  <string>__LLMPORT_DIR__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__LLMPORT_DIR__/.venv/bin/python</string>
+    <string>main.py</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__LLMPORT_DIR__/tmp_files/logs/api.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LLMPORT_DIR__/tmp_files/logs/api.log</string>
+</dict>
+</plist>
